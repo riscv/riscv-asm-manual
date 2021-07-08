@@ -182,6 +182,67 @@ Directive    | Arguments                      | Description
 .p2align     | p2,[pad_val=0],max             | align to power of 2
 .balign      | b,[pad_val=0]                  | byte align
 .zero        | integer                        | zero bytes
+.push_arch   | extension_list                 | Push current extension status to stack, and enable all extension listed in the extension list, detail syntax see [`.push_arch`/`.pop_arch`](<#push-pop-arch).
+.pop_arch    |                                | Pop current extension status from stack.
+
+### <a name=push-pop-arch></a>`.push_arch`/`.pop_arch`
+
+`.push_arch` / `.pop_arch` are used to control enabled ISA extension for certain
+code regions, but without change the arch attribute, that means it won't raise
+the minimal execution environment requirement, so user should take care to
+execution the code regions around `.push_arch`/`.pop_arch`, typical use case is
+used with `ifunc`, e.g. libc are built with `rv64gc`, but few functions like
+memcpy provide two version, one built with `rv64gc`, and one built with
+`rv64gcv`, and select by ifunc mechanism at run-time, however we don't want to
+change to minimal execution environment requirement to `rv64gcv`, since
+`rv64gcv` version will invoked only if execution environment is supported
+for vector extension, so the minimal execution environment requirement still is
+`rv64gc`.
+
+```
+EXTENSION_LIST := EXTENSION_LIST ',' EXTENSION_LIST
+                | EXTENSION
+
+EXTENSION      := <extension-name> VERSION
+                | <extension-name>
+
+VERSION        := [0-9]+ 'p' [0-9]+
+                | [1-9][0-9]*
+```
+
+```assembly
+.attribute arch, "rv64imafdc"
+# You can only use instruction from i, m, a, f, d and c extensions.
+memcpy_general:
+    add     a5,a1,a2
+    beq     a1,a5,.L2
+    add     a2,a0,a2
+    mv      a5,a0
+.L3:
+    addi    a1,a1,1
+    addi    a5,a5,1
+    lbu     a4,-1(a1)
+    sb      a4,-1(a5)
+    bne     a5,a2,.L3
+.L2:
+    ret
+
+.push_arch v # Enable vector extension, we can use any instruction in imafdcv extension.
+memcpy_vec:
+    mv a3, a0
+.Lloop:
+    vsetvli t0, a2, e8, m8, ta, ma
+    vle8.v v0, (a1)
+    add a1, a1, t0
+    sub a2, a2, t0
+    vse8.v v0, (a3)
+    add a3, a3, t0
+    bnez a2, .Lloop
+    ret
+.pop_arch    # Restore the enabled ISA extension status to imafdc.
+
+```
+
 
 ## Assembler Relocation Functions
 
